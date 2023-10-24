@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>camera</name>
+  <version>1.0.0</version>
+  <description>
+    Raspberry Pi camera utilities.
+  </description>
+  <license>Apache 2.0</license>
+  <author email="yuxuansherry.chen@mail.utoronto.ca">Sherry</author>
+  <maintainer email="yuxuansherry.chen@mail.utoronto.ca">Sherry</maintainer>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+</package>
