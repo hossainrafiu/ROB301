@@ -13,7 +13,7 @@ class ScanAnglePublisher(object):
 
     def scan_cb(self, msg):
         # only use the scan where y >= 0 (i.e., to the left side of the robot)
-        in_range = np.array(scan.ranges[0:180])
+        in_range = np.array(msg.ranges[0:180])
         angles = np.arange(0, 180) * np.pi / 180
 
         # computes the y-distance to each measurement
@@ -27,7 +27,7 @@ class ScanAnglePublisher(object):
 
         # publish the message
         angle_msg = Float64()
-        angle_msg.data = angle
+        angle_msg.data = angle - 0.026
         self.angle_pub.publish(angle_msg)
 
 
