@@ -42,29 +42,31 @@ class Controller(object):
         integral = integral + error
         derivative = error - lasterror
         
-        twist.angular.z = max_speed*1.5*((- kp * error) + (- ki * integral) + (-kd * derivative)) if follow_line else 0
+        twist.angular.z = max_speed*2.5*((- kp * error) + (- ki * integral) + (-kd * derivative)) if follow_line else 0
         twist.linear.x = max_speed/(1+math.exp(abs(error)/60-2)) if follow_line else max_speed
         
         self.cmd_pub.publish(twist)
         lasterror = error
 
         if abs(error) > 280:
-            self.find_line(error)       # MIGHT HAVE TO DISABLE!!!!!!!!!!!!!!!!!!!1
+            #self.find_line(error)       # MIGHT HAVE TO DISABLE!!!!!!!!!!!!!!!!!!!1
+            pass
         
         return None
     
-    def delivery(self):
+    def delivery(self, x):
+        rospy.loginfo("Starting Delivery at " + str(x))
         twist = Twist()
         rate = rospy.Rate(10)
         time = rospy.get_time()
-        while rospy.get_time() - 1 < time:
-            twist.angular.z = math.pi/4
+        while rospy.get_time() - 4 < time:
+            twist.angular.z = -math.pi/8
             self.cmd_pub.publish(twist)
             rate.sleep()
         rospy.sleep(2)
         time = rospy.get_time()
-        while rospy.get_time() - 1 < time:
-            twist.angular.z = -math.pi/4
+        while rospy.get_time() - 4.35 < time:
+            twist.angular.z = math.pi/8
             self.cmd_pub.publish(twist)
             rate.sleep()
         
@@ -75,13 +77,19 @@ class Controller(object):
         direction = 1
         twist = Twist()
         rate = rospy.Rate(10)
-        time = rospy.get_time()
         while abs(error) > 150:
-            while rospy.get_time - turn_time < time:
-                twist.angular.z = 0.15 * direction
+            time = rospy.get_time()
+            while rospy.get_time() - turn_time < time:
+                twist.angular.z = 0.3 * direction
+                self.cmd_pub.publish(twist)    
+                error = desired_index - actual_index
+                if abs(error) < 150:
+                    break
+                print(error)
                 rate.sleep()
             direction *= -1
-            turn_time += 0.25
+            turn_time += 0.5
+            rospy.sleep(0.25)
         return None
 
 
@@ -95,14 +103,16 @@ class BayesLoc:
         self.colour_codes = colour_codes
         self.colour_map = colour_map
         self.probability = p0
+        self.probable_state = 0
         self.state_prediction = np.zeros(self.num_states)
         
         self.cur_colour = None  # most recent measured colour
         self.cur_colour_rgb = [0,0,0]
         self.colour_prop = [0,0,0,0,0]
-        self.prev_colours = [4 for i in range(25)]
+        self.prev_colours = [4 for i in range(40)]
         self.last_colour = rospy.get_time()
-        self.prev_colour = None
+        self.delivery = False
+        self.prev_colour = 4
         self.colour_list = [
                         "blue",
                         "green",
@@ -129,12 +139,14 @@ class BayesLoc:
         for i in range(5):
             colour = colour_codes[i]
             diff = 0
-            diff += abs(self.cur_colour_rgb[0] - colour[0])**2
-            diff += abs(self.cur_colour_rgb[1] - colour[1])**2
-            diff += abs(self.cur_colour_rgb[2] - colour[2])**2
+            diff += abs(self.cur_colour_rgb[0] - colour[0])**2.5
+            diff += abs(self.cur_colour_rgb[1] - colour[1])**2.5
+            diff += abs(self.cur_colour_rgb[2] - colour[2])**2.5
             diffs.append(diff**(1/2))
         
         min_diff_index = diffs.index(min(diffs))
+        if self.delivery == True:
+            return None
         if min_diff_index < 4:
             #print(self.colour_list[min_diff_index], diffs)
             self.cur_colour = min_diff_index
@@ -144,13 +156,14 @@ class BayesLoc:
             self.last_colour = rospy.get_time()
         else:
             self.cur_colour = None
-            if rospy.get_time() - self.last_colour > 0.5 and self.prev_colour != 4.5:
+            if rospy.get_time() - self.last_colour > 0.2 and self.prev_colour != 4:
                 self.prev_colours[:] = [4.5] * len(self.prev_colours)
-                self.prev_colour = 4.5
+                self.prev_colour = 4
                 print("PREV COLOR RESET")
         #print(self.cur_colour)
 
         self.colour_prop = np.array(diffs)
+        return None
 
 
     def line_callback(self, msg):
@@ -187,11 +200,12 @@ class BayesLoc:
         Measurement model p(z_k | x_k = colour) - given the pixel intensity,
         what's the probability that of each possible colour z_k being observed?
         """
-        cur_colour = np.average(self.prev_colours)
-        #print(cur_colour, cur_colour//1, self.prev_colour)
-        if not((cur_colour//1)-cur_colour == 0.0 and round(cur_colour) != self.prev_colour):
+        cur_colour = self.prev_colours[0]
+        count = self.prev_colours.count(self.prev_colours[0])
+        print(cur_colour, count, self.colour_list[self.prev_colour])
+        if not(count == len(self.prev_colours) and round(cur_colour) != self.prev_colour):
             return None
-        
+        rospy.sleep(1.5)
         cur_colour = round(cur_colour)
         self.prev_colour = cur_colour
 
@@ -247,7 +261,8 @@ class BayesLoc:
         new_prob = [i/sum(new_prob) for i in new_prob]
         
         self.probability = new_prob
-        print("PROBABILITY", self.probability.index(max(self.probability)))
+        self.probable_state = self.probability.index(max(self.probability))
+        print("PROBABILITY", self.probable_state)
         
         return None
 
@@ -266,13 +281,6 @@ if __name__ == "__main__":
     # colour system, such as HSV (hue, saturation, value). To convert RGB to
     # HSV, use:
     # h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-    colour_codes = [
-        [194.1, 173.1, 188.6],  # blue
-        [175.8, 196.1, 168.0],  # green
-        [191.2, 185.5, 179.0],  # yellow
-        [228.7, 119.5, 110.3],  # orange
-        [148.7, 137.9, 141.1],  # line
-    ]
 
     colour_codes = [
         [194.1, 181.1, 198.6],  # blue  #FIX!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -282,34 +290,46 @@ if __name__ == "__main__":
         [148.7, 137.9, 141.1],  # line
     ]
 
+    colour_codes = [
+        [165.1, 156.1, 182.6],  # blue 
+        [150.8, 175.1, 160.0],  # green
+        [191.2, 174.5, 163.0],  # yellow
+        [244.7, 131.5, 100.3],  # orange
+        [148.7, 137.9, 141.1],  # line
+    ]
+    
     # initial probability of being at a given office is uniform
     p0 = np.ones_like(colour_map) / len(colour_map)
 
+    rospy.init_node("final_project")
     localizer = BayesLoc(p0, colour_codes, colour_map)
     controller = Controller()
     
-    rospy.init_node("final_project")
     rospy.sleep(0.5)
     rate = rospy.Rate(10)
 
-    delivery_locations = [8, -1, 3, -1] # Calibration
-    delivery_locations.append([1, 2, 3]) # Delivery Locations
+    delivery_locations = [] # Calibration
+    delivery_locations += [4, 5, 7] # Delivery Locations (actual, not index)
 
     while not rospy.is_shutdown():
         """
         TODO: complete this main loop by calling functions from BayesLoc, and
         adding your own high level and low level planning + control logic
         """
-        if localizer.probability == delivery_locations[0]:
+        #print(localizer.probable_state, delivery_locations[0])
+        if localizer.probable_state + 2 == delivery_locations[0]:
+            localizer.delivery = True
             if delivery_locations[1] == -1:     # Calibration
                 delivery_locations.pop(0)
                 delivery_locations.pop(0)
+                print("Calibtion update")
             else:    
                 rospy.sleep(1)
-                controller.delivery()
+                controller.delivery(delivery_locations[0])
                 delivery_locations.pop(0)
                 delivery_locations.append(-2)   # never empty delivery list
-        controller.follow_the_line(0.15 if follow_line else 0.05)
+            localizer.delivery = False
+        controller.follow_the_line(0.1 if follow_line else 0.05)
         localizer.state_update()
         rate.sleep()
 
