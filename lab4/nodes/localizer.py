@@ -31,9 +31,9 @@ class Controller(object):
         integral = 0
         derivative = 0
         lasterror = 0
-        kp = 0.003
-        ki = 0.00003
-        kd = 0.003
+        kp = 0.002
+        ki = 0.00002
+        kd = 0.002
         fix_heading = False
         twist = Twist()
         #rate = rospy.Rate(30)
@@ -94,7 +94,8 @@ class KalmanFilter(object):
     ## updates self.phi with the most recent measurement of the tower.
     def scan_callback(self, msg):
         if msg.data > 0:
-            expected_range = 1 # rad
+            expected_range = 0.7 # rad
+            print(self.phi_est, msg.data)
             if abs(msg.data - self.phi_est) < expected_range:
                 self.phi = msg.data
                 self.measurement_update()
@@ -111,8 +112,10 @@ class KalmanFilter(object):
         """
         TODO: update state via the motion model, and update the covariance with the process noise
         """
-        self.xk1k = self.x + u*1/30
+        self.x = self.x + u*1/30
         self.phi_est = math.atan(self.h/(self.d-self.x))
+        if self.d-self.x < 0:
+            self.phi_est += math.pi
         self.P = self.P + self.Q
         return
 
@@ -121,15 +124,14 @@ class KalmanFilter(object):
         """
         TODO: update state when a new measurement has arrived using this function
         """
-        self.D = self.h/(self.h**2 + (self.d-self.xk1k)**2)
+        self.D = self.h/(self.h**2 + (self.d-self.x)**2)
         self.s = self.phi - self.phi_est
         
         self.S = self.D*self.P*self.D + self.R
         self.W = self.P*self.D + self.R
         self.P = self.P - self.W*self.S*self.W
         
-        self.x = self.xk1k + self.W*self.s
-        self.state_pub.publish(self.x)
+        self.x = self.x + self.W*self.s
         return
     
     def run_kf(self):
@@ -139,7 +141,7 @@ class KalmanFilter(object):
         """
         self.predict(current_input)
         
-        print(self.x, self.xk1k, self.phi, self.phi_est, self.s, self.S, self.W)
+        #print(self.x, self.phi, self.phi_est, self.s, self.S, self.W)
         self.state_pub.publish(self.x)
 
 
@@ -151,7 +153,7 @@ if __name__ == "__main__":
 
     x_0 = 0  # initial state position
 
-    Q = 0.001**2  # TODO: Set process noise covariance
+    Q = 0.005**2  # TODO: Set process noise covariance
     R = 0.05  # TODO: measurement noise covariance
     P_0 = Q  # TODO: Set initial state covariance
 
@@ -163,19 +165,27 @@ if __name__ == "__main__":
     current_delivery = deliveries.pop()
     rospy.loginfo("Current Delivery =" + str(current_delivery))
     time = rospy.get_time()
+    stop = False
+    P_arr = []
     while not rospy.is_shutdown():
         kf.run_kf()
-        print(str(kf.x) + " " + str(current_delivery))
-        if (current_delivery - kf.x) > .02:
+        #print(str(kf.x) + " " + str(current_delivery))
+        if (current_delivery - kf.x) > .02 and not stop:
             controller.follow_the_line(0.15)
             time = rospy.get_time()
         elif rospy.get_time() - time < 2:
+            stop = True
             controller.follow_the_line(0)
             pass
         else: 
             if len(deliveries) == 0:
                 break
             current_delivery = deliveries.pop()
+            stop = False
             rospy.loginfo("Current Delivery =" + str(current_delivery))
+        P_arr.append(kf.P)
+        rate.sleep()
+    while not rospy.is_shutdown():
+        kf.state_pub.publish(P_arr.pop(0))
         rate.sleep()
     
